@@ -8,7 +8,7 @@ import click
 from bluepy import btle
 from prometheus_client import Gauge, start_http_server
 
-SWITCHBOT_MANUFACTURER_ID = "5900e5a1002d172c"
+SWITCHBOT_MANUFACTURER_ID = "5900"
 SWITCHBOT_SERVICE_ID = "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
 
 gauge_rssi = Gauge("switchbot_rssi", "The Received Signal Strength Indicator (RSSI) of the device", ["device"])
@@ -41,7 +41,7 @@ def is_switchbot_thermometer(device: btle.ScanEntry):
     scan_data = get_scan_data(device)
     logging.debug("%s scan data: %s", device_str, json.dumps(scan_data, indent=4))
 
-    if scan_data.get("Manufacturer") != SWITCHBOT_MANUFACTURER_ID:
+    if not scan_data.get("Manufacturer", '').startswith(SWITCHBOT_MANUFACTURER_ID):
         logging.debug("%s manufacturer is not Swichbot", device_str)
         return False
 
