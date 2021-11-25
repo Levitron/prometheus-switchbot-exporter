@@ -5,6 +5,7 @@ After=multi-user.target
 [Service]
 Type=simple
 Restart=always
+WorkingDirectory=/home/pi/prometheus-switchbot-exporter/
 ExecStart=/home/pi/prometheus-switchbot-exporter/.venv/bin/python -m prometheus_switchbot_exporter
 
 [Install]
