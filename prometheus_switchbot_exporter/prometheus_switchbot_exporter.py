@@ -68,11 +68,9 @@ def parse_device_data(device: btle.ScanEntry):
     byte3 = int(service_data[10:12], 16)
     byte4 = int(service_data[12:14], 16)
     if byte4 > 0:
-        offset = 128
+        temperature = float(byte4 - 128) + float(byte3 / 10.0)
     else:
-        offset = 0
-
-    temperature = float(byte4 - offset) + float(byte3 / 10.0)
+        temperature = float(byte4) - float(byte3 / 10.0)
 
     byte5 = int(service_data[14:16], 16)
     humidity = byte5
