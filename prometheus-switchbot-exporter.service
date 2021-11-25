@@ -1,0 +1,11 @@
+[Unit]
+Description=Prometheus exporter for Switchbot Sensor
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/home/pi/prometheus-switchbot-exporter/.venv/bin/python -m prometheus_switchbot_exporter
+
+[Install]
+WantedBy=multi-user.target
