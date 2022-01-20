@@ -1,8 +1,6 @@
 import json
-import time
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
 
 import click
 from bluepy import btle
@@ -11,10 +9,32 @@ from prometheus_client import Gauge, start_http_server
 SWITCHBOT_MANUFACTURER_ID = "5900"
 SWITCHBOT_SERVICE_ID = "cba20d00-224d-11e6-9fb8-0002a5d5c51b"
 
-gauge_rssi = Gauge("switchbot_rssi", "The Received Signal Strength Indicator (RSSI) of the device", ["device"])
-gauge_battery = Gauge("switchbot_battery", "The battery percentage of the device", ["device"])
-gauge_humidity = Gauge("switchbot_humidity", "The humidity percentage measured by the device", ["device"])
-gauge_temperature = Gauge("switchbot_temperature", "The temperature in celsius measured by the device", ["device"])
+DEVICE_NAME_MAP = {
+    "f2:0c:69:f4:56:af": "Haustür",
+    "ee:ed:06:15:e1:fc": "Terasse",
+    "f2:8d:34:be:e8:e6": "Wohnzimmer",
+    "e3:06:1c:69:f5:67": "Büro",
+    "ce:e7:0b:2e:1a:fe": "Bad",
+}
+
+gauge_rssi = Gauge(
+    "switchbot_rssi",
+    "The Received Signal Strength Indicator (RSSI) of the device",
+    ["device", "name"],
+)
+gauge_battery = Gauge(
+    "switchbot_battery", "The battery percentage of the device", ["device", "name"]
+)
+gauge_humidity = Gauge(
+    "switchbot_humidity",
+    "The humidity percentage measured by the device",
+    ["device", "name"],
+)
+gauge_temperature = Gauge(
+    "switchbot_temperature",
+    "The temperature in celsius measured by the device",
+    ["device", "name"],
+)
 
 
 @dataclass
@@ -25,14 +45,16 @@ class Measurement:
 
 
 class SwitchbotDelegate(btle.DefaultDelegate):
-    def handleDiscovery(self, device: btle.ScanEntry, is_new_device: bool, is_new_data: bool):
+    def handleDiscovery(
+        self, device: btle.ScanEntry, is_new_device: bool, is_new_data: bool
+    ):
         if is_switchbot_thermometer(device):
             measurement = parse_device_data(device)
             publish_measurement(device, measurement)
 
 
 def is_switchbot_thermometer(device: btle.ScanEntry):
-    device_str = f"Device (addr={device.addr},rssi={device.rssi},connectable={device.connectable})"
+    device_str = f"Device (addr={device.addr},name={DEVICE_NAME_MAP.get(device.addr)},rssi={device.rssi},connectable={device.connectable})"
 
     if not device.scanData:
         logging.debug("%s exposes no data", device_str)
@@ -41,7 +63,7 @@ def is_switchbot_thermometer(device: btle.ScanEntry):
     scan_data = get_scan_data(device)
     logging.debug("%s scan data: %s", device_str, json.dumps(scan_data, indent=4))
 
-    if not scan_data.get("Manufacturer", '').startswith(SWITCHBOT_MANUFACTURER_ID):
+    if not scan_data.get("Manufacturer", "").startswith(SWITCHBOT_MANUFACTURER_ID):
         logging.debug("%s manufacturer is not Swichbot", device_str)
         return False
 
@@ -65,34 +87,47 @@ def parse_device_data(device: btle.ScanEntry):
     byte2 = int(service_data[8:10], 16)
     battery = byte2 & 127
 
-    byte3 = int(service_data[10:12], 16)
-    byte4 = int(service_data[12:14], 16)
-    if byte4 > 0:
-        temperature = float(byte4 - 128) + float(byte3 / 10.0)
+    temperature_fractional = int(service_data[11:12].encode("utf-8"), 16) / 10.0
+    temperature_integral = int(service_data[12:14].encode("utf-8"), 16)
+    if temperature_integral < 128:
+        temperature_integral *= -1
+        temperature_fractional *= -1
     else:
-        temperature = float(byte4) - float(byte3 / 10.0)
+        temperature_integral -= 128
 
-    byte5 = int(service_data[14:16], 16)
-    humidity = byte5
+    temperature = temperature_integral + temperature_fractional
+    humidity = int(service_data[14:16].encode("utf-8"), 16) % 128
 
     return Measurement(battery, temperature, humidity)
 
 
 def publish_measurement(device: btle.ScanEntry, measurement: Measurement):
     logging.info("Published: %s", json.dumps(asdict(measurement)))
-    gauge_rssi.labels(device=device.addr).set(device.rssi)
-    gauge_battery.labels(device=device.addr).set(measurement.battery)
-    gauge_humidity.labels(device=device.addr).set(measurement.humidity)
-    gauge_temperature.labels(device=device.addr).set(measurement.temperature)
+    gauge_rssi.labels(
+        device=device.addr, name=DEVICE_NAME_MAP.get(device.addr, device.addr)
+    ).set(device.rssi)
+    gauge_battery.labels(
+        device=device.addr, name=DEVICE_NAME_MAP.get(device.addr, device.addr)
+    ).set(measurement.battery)
+    gauge_humidity.labels(
+        device=device.addr, name=DEVICE_NAME_MAP.get(device.addr, device.addr)
+    ).set(measurement.humidity)
+    gauge_temperature.labels(
+        device=device.addr, name=DEVICE_NAME_MAP.get(device.addr, device.addr)
+    ).set(measurement.temperature)
 
 
 def configure_logging(verbose, quiet, default_level=logging.INFO):
     level = default_level + (quiet - verbose) * 10
-    logging.basicConfig(format="[%(levelname)-8s] %(message)s", datefmt="[%X]", level=level)
+    logging.basicConfig(
+        format="[%(levelname)-8s] %(message)s", datefmt="[%X]", level=level
+    )
 
 
 @click.command()
-@click.option("-p", "--metrics-port", default=8080, help="Expose metrics as a Prometheus target")
+@click.option(
+    "-p", "--metrics-port", default=8080, help="Expose metrics as a Prometheus target"
+)
 @click.option("-v", "--verbose", count=True, help="Increase logging verbosity")
 @click.option("-q", "--quiet", count=True, help="Decrease verbosity")
 def main(metrics_port, verbose, quiet):
@@ -100,7 +135,10 @@ def main(metrics_port, verbose, quiet):
     configure_logging(verbose, quiet)
     start_http_server(metrics_port)
 
-    logging.debug("Started Prometheus exporter on ':%s' scrapping Swichbot thermometers nearby", metrics_port)
+    logging.debug(
+        "Started Prometheus exporter on ':%s' scrapping Swichbot thermometers nearby",
+        metrics_port,
+    )
     scanner = btle.Scanner().withDelegate(SwitchbotDelegate())
     while True:
         try:
