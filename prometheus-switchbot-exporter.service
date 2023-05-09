@@ -1,11 +1,12 @@
 [Unit]
 Description=Prometheus exporter for Switchbot Sensor
 After=multi-user.target
+BindsTo=bluetooth
+OnFailure=restart-bluetooth.service
 
 [Service]
 Type=simple
 Restart=always
-WorkingDirectory=/home/pi/prometheus-switchbot-exporter/
 ExecStart=/home/pi/prometheus-switchbot-exporter/.venv/bin/python -m prometheus_switchbot_exporter
 
 [Install]

@@ -1,0 +1,6 @@
+[Unit]
+Description=Failure handler for Switchbot prometheus exporter
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart bluetooth
